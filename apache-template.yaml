@@ -4,8 +4,8 @@ labels:
   template: apache
 metadata:
   annotations:
-    description: A basic builder for n~asq's application
-    iconClass: icon-shaddowman
+    description: A basic builder for Apache container
+    iconClass: icon-shadowman
     tags: apache
   name: apache
 objects:
@@ -13,34 +13,41 @@ objects:
 - kind: ImageStream
   apiVersion: v1
   metadata:
-    name: apache
+    name: ${NAME}
+
+- kind: ImageStream
+  apiVersion: v1
+  metadata:
+    name: apache-base
+  spec:
+    dockerImageRepository: "registry.access.redhat.com/rhscl/httpd-24-rhel7"  
 
 - apiVersion: v1
   kind: Service
   metadata:
     annotations:
       description: Exposes and load balances the application pods
-    name: apache
+    name: ${NAME}-https
   spec:
     ports:
     - name: https
       port: 8443
       targetPort: 8443
     selector:
-      name: apache
+      name: ${NAME}
 - apiVersion: v1
   kind: Service
   metadata:
     annotations:
       description: Exposes and load balances the application pods
-    name: apache
+    name: ${NAME}-http
   spec:
     ports:
     - name: http
       port: 8080
       targetPort: 8080
     selector:
-      name: apache
+      name: ${NAME}
 
 
 - apiVersion: v1
@@ -50,63 +57,68 @@ objects:
     annotations:
       description: Route for apache's HTTPS service.
     labels:
-      application: apache
-    name: apache
+      application: ${NAME}
+    name: ${NAME}
   spec:
     port:
       targetPort: "https"
     to:
       kind: Service
-      name: apache
+      name: ${NAME}-https
     tls:
       termination: passthrough
 
-
-- kind: "BuildConfig"
-  apiVersion: "v1"
+- apiVersion: v1
+  kind: BuildConfig
   metadata:
-    name: "apache-build"
+    annotations:
+      description: Defines how to build the application
+    name: ${NAME}
   spec:
-    runPolicy: "Serial"
-    triggers:
-    - type: "ConfigChange"
-    source:
-      type: "Git"
-      git:
-        uri: "https://github.com/kevensen/apache-container-ocp"
-    strategy:
-      strategy:
-        type: Docker
-        dockerStrategy:
     output:
       to:
-        kind: "ImageStreamTag"
-        name: "apache:latest"
+        kind: ImageStreamTag
+        name: ${NAME}:latest
+    source:
+      contextDir: ${CONTEXT_DIR}
+      git:
+        ref: ${SOURCE_REPOSITORY_REF}
+        uri: ${SOURCE_REPOSITORY_URL}
+      type: Git
+    strategy:
+      sourceStrategy:
+        from:
+          kind: ImageStreamTag
+          name: apache-base:latest
+      type: Source
+    triggers:
+    - type: ImageChange
+    - type: ConfigChange
 
 - apiVersion: v1
   kind: DeploymentConfig
   metadata:
     annotations:
       description: Defines how to deploy the application server
-    name: apache
+    name: ${NAME}
   spec:
     replicas: 1
     selector:
-      name: apache
+      name: ${$NAME}
     strategy:
       type: Rolling
     template:
       metadata:
         labels:
-          name: apache
-        name: apache
+          name: ${NAME}
+        name: ${NAME}
       spec:
         containers:
         - env:
           - name: APACHE_LOGS_DIR
             value: logs
           image: ' '
-          name: apache
+          name: ${NAME}
           ports:
           - containerPort: 443
 #          volumeMounts:
@@ -122,8 +134,27 @@ objects:
     - imageChangeParams:
         automatic: true
         containerNames:
-        - apache
+        - ${NAME}
         from:
           kind: ImageStreamTag
-          name: apache:latest
+          name: ${NAME}:latest
       type: ImageChange
+parameters:
+- description: The name assigned to all of the frontend objects defined in this template.
+  displayName: Name
+  name: NAME
+  required: true
+  value: apache
+- description: The URL of the repository with your application source code.
+  displayName: Git Repository URL
+  name: SOURCE_REPOSITORY_URL
+  required: true
+  value: https://github.com/openshift/cakephp-ex.git
+- description: Set this to a branch name, tag or other ref of your repository if you
+    are not using the default branch.
+  displayName: Git Reference
+  name: SOURCE_REPOSITORY_REF
+- description: Set this to the relative path to your project if it is not in the root
+    of your repository.
+  displayName: Context Directory
+  name: CONTEXT_DIR
